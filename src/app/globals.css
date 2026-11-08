@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --color-paper: #f3f0ea;
+  --color-ink: #171614;
+  --color-muted: #5f5952;
+  --color-line: #e4dfd6;
+  --color-card: #fffcf8;
+}
