@@ -1,41 +1,36 @@
+# Thread Art
 
+![Thread Art studio, with a circular crop, its black-and-white version, and the pin board](https://github.com/user-attachments/assets/f0c47bed-e75a-40c6-b9ca-8d116c9412a6)
 
+A browser studio for planning circular string art from a photograph. Drop in a picture, crop it to a circle, choose how many pins and threads to use, and preview the pattern before you build it.
 
-<img width="1411" height="1641" alt="screencapture-localhost-3000-2026-11-08-20_02_56" src="https://github.com/user-attachments/assets/f0c47bed-e75a-40c6-b9ca-8d116c9412a6" />
+Photos stay on your machine. Cropping, grayscale conversion, and thread planning all run in the browser.
 
+## How to use it
 
+1. Drop a PNG, JPG, WEBP, or GIF, or choose a file.
+2. Drag and zoom the photo inside the circle, then confirm the crop.
+3. Compare the crop with its black-and-white version.
+4. Enter a pin count (3 to 1,000) and a thread-line count (1 to 20,000).
+5. Watch the board fill in. Numbered pins sit around the rim, and the step control shows the pattern one thread at a time.
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Each new thread is chosen to darken the parts of the circle that still need ink, skipping pins that sit too close to the current one.
 
-## Getting Started
-
-First, run the development server:
+## Develop
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the local app |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run the library tests |
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built with Next.js, React, and TypeScript.
