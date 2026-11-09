@@ -16,11 +16,15 @@ export function PinBoard({
   threads,
   step,
   lineCount,
+  weight,
+  crossing,
 }: {
   pinCount: number;
   threads: ThreadSegment[];
   step: number;
   lineCount: number;
+  weight: number;
+  crossing: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shown = Math.min(Math.max(0, step), threads.length);
@@ -38,9 +42,9 @@ export function PinBoard({
     const size = 760;
     canvas.width = size;
     canvas.height = size;
-    const pixels = renderBoard(threads.slice(0, shown), pinCount, size, lineCount);
+    const pixels = renderBoard(threads.slice(0, shown), pinCount, size, lineCount, { weight, crossing });
     context.putImageData(new ImageData(pixels, size, size), 0, 0);
-  }, [lineCount, pinCount, shown, threads]);
+  }, [crossing, lineCount, pinCount, shown, threads, weight]);
 
   return (
     <div className="relative mx-auto w-full max-w-lg">

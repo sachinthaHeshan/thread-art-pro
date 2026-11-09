@@ -5,14 +5,21 @@ import {
   darknessFromPixels,
   planThreads,
   type ThreadSegment,
+  type ThreadTune,
 } from "@/lib/thread-pattern";
 
 const SAMPLE_SIZE = 500;
 
-export function useThreadArt(imageUrl: string, pinCount: number | null, lineCount: number | null) {
+export function useThreadArt(
+  imageUrl: string,
+  pinCount: number | null,
+  lineCount: number | null,
+  tune: ThreadTune,
+) {
   const [threads, setThreads] = useState<ThreadSegment[]>([]);
   const [progress, setProgress] = useState<number | null>(null);
   const ready = pinCount !== null && lineCount !== null;
+  const { weight, minDistance, memory } = tune;
 
   useEffect(() => {
     if (pinCount === null || lineCount === null) return;
@@ -32,6 +39,7 @@ export function useThreadArt(imageUrl: string, pinCount: number | null, lineCoun
             size: SAMPLE_SIZE,
             pinCount,
             lineCount,
+            tune: { weight, minDistance, memory },
             isCancelled: () => cancelled,
             onProgress: (done, partial) => {
               if (cancelled) return;
@@ -57,7 +65,7 @@ export function useThreadArt(imageUrl: string, pinCount: number | null, lineCoun
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [imageUrl, pinCount, lineCount]);
+  }, [imageUrl, pinCount, lineCount, weight, minDistance, memory]);
 
   return {
     threads: ready ? threads : [],

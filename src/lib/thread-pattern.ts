@@ -16,20 +16,39 @@ export const BOARD_CENTER = 200;
 export const BOARD_RADIUS = 142;
 export const LABEL_RADIUS = 174;
 
-export function threadStrength(lineCount: number) {
-  const weight = 20 / 255;
+export type ThreadTune = {
+  weight: number;
+  minDistance: number;
+  memory: number;
+  crossing: number;
+};
+
+export const DEFAULT_THREAD_TUNE: ThreadTune = {
+  weight: 20,
+  minDistance: 20,
+  memory: 20,
+  crossing: 0.55,
+};
+
+export function threadStrength(lineCount: number, weight = DEFAULT_THREAD_TUNE.weight) {
+  const amount = clamp(weight, 1, 80) / 255;
   const reference = 4000;
-  if (lineCount <= reference) return weight;
-  return weight * Math.sqrt(reference / Math.max(1, lineCount));
+  if (lineCount <= reference) return amount;
+  return amount * Math.sqrt(reference / Math.max(1, lineCount));
 }
 
-export function addedDarkness(previousAngle: number | null, nextAngle: number, strength: number) {
+export function addedDarkness(
+  previousAngle: number | null,
+  nextAngle: number,
+  strength: number,
+  crossing = DEFAULT_THREAD_TUNE.crossing,
+) {
   if (previousAngle === null) return strength;
 
   let delta = Math.abs(nextAngle - previousAngle) % Math.PI;
   if (delta > Math.PI / 2) delta = Math.PI - delta;
 
-  return strength * (1 + 0.55 * (1 - Math.sin(delta)));
+  return strength * (1 + clamp(crossing, 0, 2) * (1 - Math.sin(delta)));
 }
 
 export function darknessFromPixels(pixels: Uint8ClampedArray, size: number) {
@@ -100,6 +119,7 @@ export async function planThreads({
   size,
   pinCount,
   lineCount,
+  tune,
   onProgress,
   isCancelled,
 }: {
@@ -107,17 +127,19 @@ export async function planThreads({
   size: number;
   pinCount: number;
   lineCount: number;
+  tune?: Partial<ThreadTune>;
   onProgress?: (done: number, segments: ThreadSegment[]) => void;
   isCancelled?: () => boolean;
 }) {
   if (pinCount < 2 || lineCount < 1) return [];
 
+  const settings = { ...DEFAULT_THREAD_TUNE, ...tune };
   const residual = new Float32Array(darkness);
-  const strength = threadStrength(lineCount);
+  const strength = threadStrength(lineCount, settings.weight);
   const pins = Array.from({ length: pinCount }, (_, index) => pinPoint(index, pinCount, size));
   const cache = new Map<number, number[]>();
-  const gap = minimumGap(pinCount);
-  const memory = recentLimit(pinCount);
+  const gap = minimumGap(pinCount, settings.minDistance);
+  const memory = recentLimit(pinCount, settings.memory);
   const recent: number[] = [];
   const stride = pinCount * lineCount > 1_500_000 ? 2 : 1;
   const segments: ThreadSegment[] = [];
@@ -170,7 +192,10 @@ export function renderBoard(
   pinCount: number,
   size: number,
   lineCount = segments.length,
+  tune?: Partial<ThreadTune>,
 ) {
+  const settings = { ...DEFAULT_THREAD_TUNE, ...tune };
+  const strength = threadStrength(lineCount, settings.weight);
   const image = new Uint8ClampedArray(size * size * 4);
   image.fill(255);
   for (let index = 3; index < image.length; index += 4) image[index] = 0;
@@ -209,7 +234,10 @@ export function renderBoard(
     for (const pixel of linePixels(start.x, start.y, end.x, end.y, size)) {
       if (image[pixel * 4 + 3] === 0) continue;
       const previous = Number.isNaN(angles[pixel]) ? null : angles[pixel];
-      coverage[pixel] = Math.min(1, coverage[pixel] + addedDarkness(previous, angle, threadStrength(lineCount)));
+      coverage[pixel] = Math.min(
+        1,
+        coverage[pixel] + addedDarkness(previous, angle, strength, settings.crossing),
+      );
       angles[pixel] = angle;
       const shade = 255 * (1 - coverage[pixel]);
       const offset = pixel * 4;
@@ -254,12 +282,17 @@ function circularDistance(from: number, to: number, pinCount: number) {
   return Math.min(delta, pinCount - delta);
 }
 
-function minimumGap(pinCount: number) {
-  const gap = Math.max(1, Math.round((pinCount * 20) / 288));
+function minimumGap(pinCount: number, minDistance: number) {
+  const gap = Math.max(1, Math.round((pinCount * clamp(minDistance, 1, 120)) / 288));
   if (gap * 2 >= pinCount - 1) return Math.floor((pinCount - 1) / 3);
   return gap;
 }
 
-function recentLimit(pinCount: number) {
-  return Math.min(20, Math.max(2, Math.floor(pinCount / 10)));
+function recentLimit(pinCount: number, memory: number) {
+  return Math.min(Math.max(0, pinCount - 2), Math.max(0, Math.round(clamp(memory, 0, 120))));
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }

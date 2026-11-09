@@ -23,6 +23,11 @@ describe("addedDarkness", () => {
     assert.ok(shallow > wide);
     assert.ok(wide >= 0.2);
   });
+
+  it("deepens a shallow crossing only by the requested amount", () => {
+    assert.equal(addedDarkness(0, 0, 0.2, 0), 0.2);
+    assert.ok(addedDarkness(0, 0, 0.2, 1) > addedDarkness(0, 0, 0.2, 0));
+  });
 });
 
 describe("darknessFromPixels", () => {
@@ -124,6 +129,13 @@ describe("threadStep", () => {
   });
 });
 
+describe("threadStrength", () => {
+  it("uses the requested thread weight", () => {
+    assert.equal(threadStrength(100, 40), 40 / 255);
+    assert.equal(threadStrength(100), 20 / 255);
+  });
+});
+
 describe("planThreads", () => {
   it("follows the dark chord and keeps one continuous thread", async () => {
     const size = 48;
@@ -182,6 +194,34 @@ describe("planThreads", () => {
     const threads = await planThreads({ darkness, size, pinCount, lineCount: 1 });
     assert.equal(threads[0].from, 0);
     assert.equal(threads[0].to, bestTo);
+  });
+
+  it("skips a nearby pin when the minimum span is raised", async () => {
+    const size = 64;
+    const pinCount = 24;
+    const near = 3;
+    const darkness = new Float32Array(size * size);
+    const start = pinPoint(0, pinCount, size);
+    const end = pinPoint(near, pinCount, size);
+    for (const pixel of linePixels(start.x, start.y, end.x, end.y, size)) darkness[pixel] = 1;
+
+    const open = await planThreads({
+      darkness,
+      size,
+      pinCount,
+      lineCount: 1,
+      tune: { minDistance: 1 },
+    });
+    const closed = await planThreads({
+      darkness,
+      size,
+      pinCount,
+      lineCount: 1,
+      tune: { minDistance: 40 },
+    });
+
+    assert.equal(open[0].to, near);
+    assert.notEqual(closed[0].to, near);
   });
 
   it("does not redraw one chord into a solid bar", async () => {

@@ -5,7 +5,7 @@ import { CircleCropper } from "@/components/circle-cropper";
 import { PinBoard } from "@/components/pin-board";
 import { useThreadArt } from "@/components/use-thread-art";
 import { applyGrayscale } from "@/lib/grayscale";
-import { threadStep } from "@/lib/thread-pattern";
+import { DEFAULT_THREAD_TUNE, threadStep, type ThreadTune } from "@/lib/thread-pattern";
 
 const ACCEPTED_TYPES = new Set([
   "image/jpeg",
@@ -35,6 +35,7 @@ export function Studio() {
   const [isWorking, setIsWorking] = useState(false);
   const [pinCount, setPinCount] = useState("");
   const [lineCount, setLineCount] = useState("");
+  const [tune, setTune] = useState<ThreadTune>(DEFAULT_THREAD_TUNE);
 
   useEffect(() => {
     if (!conversion) return;
@@ -148,8 +149,10 @@ export function Studio() {
           isWorking={isWorking}
           pinCount={pinCount}
           lineCount={lineCount}
+          tune={tune}
           onPinCountChange={setPinCount}
           onLineCountChange={setLineCount}
+          onTuneChange={setTune}
           onReplace={() => inputRef.current?.click()}
           onClear={() => {
             setConversion(null);
@@ -216,8 +219,10 @@ function Comparison({
   isWorking,
   pinCount,
   lineCount,
+  tune,
   onPinCountChange,
   onLineCountChange,
+  onTuneChange,
   onReplace,
   onClear,
 }: {
@@ -225,14 +230,16 @@ function Comparison({
   isWorking: boolean;
   pinCount: string;
   lineCount: string;
+  tune: ThreadTune;
   onPinCountChange: (value: string) => void;
   onLineCountChange: (value: string) => void;
+  onTuneChange: (tune: ThreadTune) => void;
   onReplace: () => void;
   onClear: () => void;
 }) {
   const pins = readCount(pinCount, 3, 1000);
   const lines = readCount(lineCount, 1, 20000);
-  const threadArt = useThreadArt(conversion.monochromeUrl, pins, lines);
+  const threadArt = useThreadArt(conversion.monochromeUrl, pins, lines, tune);
   const [playback, setPlayback] = useState({ total: 0, step: 0 });
   if (lines !== null && playback.total !== lines) {
     setPlayback({ total: lines, step: lines });
@@ -291,6 +298,8 @@ function Comparison({
         />
       </div>
 
+      <Tune tune={tune} onChange={onTuneChange} />
+
       <div className="mt-10">
         {pins === null ? (
           <p className="py-16 text-center text-sm text-muted">
@@ -314,6 +323,8 @@ function Comparison({
               threads={threadArt.threads}
               step={step}
               lineCount={lines ?? 0}
+              weight={tune.weight}
+              crossing={tune.crossing}
             />
             {lines !== null ? (
               <ThreadSteps
@@ -379,6 +390,124 @@ function ThreadSteps({
       </p>
     </div>
   );
+}
+
+function Tune({
+  tune,
+  onChange,
+}: {
+  tune: ThreadTune;
+  onChange: (tune: ThreadTune) => void;
+}) {
+  return (
+    <div className="mt-8 border-t border-line pt-8">
+      <div className="mb-5 flex items-baseline justify-between gap-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">Tune</p>
+        <button
+          type="button"
+          onClick={() => onChange(DEFAULT_THREAD_TUNE)}
+          className="text-sm text-muted underline decoration-transparent underline-offset-4 transition hover:text-ink hover:decoration-ink"
+        >
+          Reset
+        </button>
+      </div>
+      <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+        <TuneSlider
+          id="thread-weight"
+          label="Thread weight"
+          hint="How much darkness one line removes."
+          min={1}
+          max={80}
+          step={1}
+          value={tune.weight}
+          display={String(tune.weight)}
+          onChange={(weight) => onChange({ ...tune, weight })}
+        />
+        <TuneSlider
+          id="minimum-span"
+          label="Minimum span"
+          hint="Skips pins that sit too close together."
+          min={1}
+          max={80}
+          step={1}
+          value={tune.minDistance}
+          display={String(tune.minDistance)}
+          onChange={(minDistance) => onChange({ ...tune, minDistance })}
+        />
+        <TuneSlider
+          id="recent-pins"
+          label="Recent pins"
+          hint="Pins the thread will not return to right away."
+          min={0}
+          max={80}
+          step={1}
+          value={tune.memory}
+          display={String(tune.memory)}
+          onChange={(memory) => onChange({ ...tune, memory })}
+        />
+        <TuneSlider
+          id="crossing"
+          label="Crossing"
+          hint="How much darker a shallow crossing becomes."
+          min={0}
+          max={1.5}
+          step={0.05}
+          value={tune.crossing}
+          display={formatCrossing(tune.crossing)}
+          onChange={(crossing) => onChange({ ...tune, crossing })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TuneSlider({
+  id,
+  label,
+  hint,
+  min,
+  max,
+  step,
+  value,
+  display,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  display: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted">
+          {label}
+        </label>
+        <span className="font-serif text-xl tracking-tight text-ink">{display}</span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-valuetext={display}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-3 w-full accent-ink"
+      />
+      <p className="mt-2 text-sm text-muted">{hint}</p>
+    </div>
+  );
+}
+
+function formatCrossing(value: number) {
+  return String(Math.round(value * 100) / 100);
 }
 
 function CountField({
