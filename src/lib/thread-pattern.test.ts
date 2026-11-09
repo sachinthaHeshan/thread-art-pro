@@ -148,6 +148,42 @@ describe("planThreads", () => {
     }
   });
 
+  it("follows the chord that holds the most darkness", async () => {
+    const size = 72;
+    const pinCount = 24;
+    const gap = Math.max(1, Math.round((pinCount * 20) / 288));
+    const darkness = new Float32Array(size * size);
+
+    for (let candidate = 1; candidate < pinCount; candidate += 1) {
+      const distance = Math.min(candidate, pinCount - candidate);
+      if (distance <= gap) continue;
+      const start = pinPoint(0, pinCount, size);
+      const end = pinPoint(candidate, pinCount, size);
+      const pixels = linePixels(start.x, start.y, end.x, end.y, size);
+      const tone = pixels.length > 80 ? 0.55 : 1;
+      for (const pixel of pixels) darkness[pixel] = Math.max(darkness[pixel], tone);
+    }
+
+    let bestSum = -1;
+    let bestTo = -1;
+    for (let candidate = 1; candidate < pinCount; candidate += 1) {
+      const distance = Math.min(candidate, pinCount - candidate);
+      if (distance <= gap) continue;
+      const start = pinPoint(0, pinCount, size);
+      const end = pinPoint(candidate, pinCount, size);
+      let sum = 0;
+      for (const pixel of linePixels(start.x, start.y, end.x, end.y, size)) sum += darkness[pixel];
+      if (sum > bestSum) {
+        bestSum = sum;
+        bestTo = candidate;
+      }
+    }
+
+    const threads = await planThreads({ darkness, size, pinCount, lineCount: 1 });
+    assert.equal(threads[0].from, 0);
+    assert.equal(threads[0].to, bestTo);
+  });
+
   it("does not redraw one chord into a solid bar", async () => {
     const size = 64;
     const pinCount = 36;
@@ -165,16 +201,18 @@ describe("planThreads", () => {
     }
 
     const threads = await planThreads({ darkness, size, pinCount, lineCount });
-    const seen = new Set<string>();
+    const counts = new Map<string, number>();
 
     assert.equal(threads.length, lineCount);
     for (let index = 0; index < threads.length; index += 1) {
       const thread = threads[index];
       if (index > 0) assert.equal(thread.from, threads[index - 1].to);
       const key = `${Math.min(thread.from, thread.to)}-${Math.max(thread.from, thread.to)}`;
-      assert.equal(seen.has(key), false);
-      seen.add(key);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
+
+    const maxRepeat = Math.max(...counts.values());
+    assert.ok(maxRepeat * threadStrength(lineCount) <= 0.45 + threadStrength(lineCount));
   });
 });
 

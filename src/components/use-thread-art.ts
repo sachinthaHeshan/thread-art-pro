@@ -7,7 +7,7 @@ import {
   type ThreadSegment,
 } from "@/lib/thread-pattern";
 
-const SAMPLE_SIZE = 384;
+const SAMPLE_SIZE = 500;
 
 export function useThreadArt(imageUrl: string, pinCount: number | null, lineCount: number | null) {
   const [threads, setThreads] = useState<ThreadSegment[]>([]);

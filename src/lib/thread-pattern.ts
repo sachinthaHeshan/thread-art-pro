@@ -17,8 +17,10 @@ export const BOARD_RADIUS = 142;
 export const LABEL_RADIUS = 174;
 
 export function threadStrength(lineCount: number) {
-  const layers = Math.min(28, Math.max(6, Math.sqrt(Math.max(1, lineCount)) * 0.55));
-  return 1 / layers;
+  const weight = 20 / 255;
+  const reference = 4000;
+  if (lineCount <= reference) return weight;
+  return weight * Math.sqrt(reference / Math.max(1, lineCount));
 }
 
 export function addedDarkness(previousAngle: number | null, nextAngle: number, strength: number) {
@@ -110,66 +112,29 @@ export async function planThreads({
 }) {
   if (pinCount < 2 || lineCount < 1) return [];
 
-  const { target, importance } = prepareTarget(darkness, size);
+  const residual = new Float32Array(darkness);
   const strength = threadStrength(lineCount);
   const pins = Array.from({ length: pinCount }, (_, index) => pinPoint(index, pinCount, size));
-  const coverage = new Float32Array(size * size);
-  const angles = new Float32Array(size * size);
-  angles.fill(Number.NaN);
-  const used = new Uint16Array(pinCount * pinCount);
-  const visits = new Uint16Array(pinCount);
   const cache = new Map<number, number[]>();
   const gap = minimumGap(pinCount);
+  const memory = recentLimit(pinCount);
+  const recent: number[] = [];
   const stride = pinCount * lineCount > 1_500_000 ? 2 : 1;
   const segments: ThreadSegment[] = [];
   let current = 0;
-  let previous = -1;
 
   for (let line = 0; line < lineCount; line += 1) {
     if (isCancelled?.()) return segments;
 
-    const selectPin = (allowReuse: boolean) => {
-      let chosen = -1;
-      let chosenScore = Number.NEGATIVE_INFINITY;
-
-      for (let candidate = 0; candidate < pinCount; candidate += 1) {
-        if (candidate === current || candidate === previous) continue;
-        if (circularDistance(current, candidate, pinCount) <= gap) continue;
-
-        const repeats = used[edgeKey(current, candidate, pinCount)];
-        if (repeats > 0 && !allowReuse) continue;
-
-        const score =
-          scoreLine(
-            pixelsFor(cache, pins, current, candidate, pinCount, size),
-            target,
-            coverage,
-            importance,
-            stride,
-          ) /
-          ((1 + visits[candidate] * 0.18) * (1 + repeats * 3));
-        if (score > chosenScore) {
-          chosenScore = score;
-          chosen = candidate;
-        }
-      }
-
-      return chosen;
-    };
-
-    let bestPin = selectPin(false);
-    if (bestPin < 0) bestPin = selectPin(true);
-
+    let bestPin = selectNextPin(false);
+    if (bestPin < 0) bestPin = selectNextPin(true);
     if (bestPin < 0) break;
 
     const pixels = pixelsFor(cache, pins, current, bestPin, pinCount, size);
-    const angle = lineAngle(pins[current], pins[bestPin]);
-    commitLine(pixels, angle, coverage, angles, strength);
-    used[edgeKey(current, bestPin, pinCount)] += 1;
-    used[edgeKey(bestPin, current, pinCount)] += 1;
+    for (const pixel of pixels) residual[pixel] = Math.max(0, residual[pixel] - strength);
     segments.push({ from: current, to: bestPin });
-    visits[bestPin] += 1;
-    previous = current;
+    recent.push(bestPin);
+    if (recent.length > memory) recent.shift();
     current = bestPin;
 
     if (onProgress && (line + 1) % 40 === 0) {
@@ -179,6 +144,25 @@ export async function planThreads({
   }
 
   return segments;
+
+  function selectNextPin(ignoreRecent: boolean) {
+    let chosen = -1;
+    let chosenScore = -1;
+
+    for (let candidate = 0; candidate < pinCount; candidate += 1) {
+      if (candidate === current) continue;
+      if (circularDistance(current, candidate, pinCount) <= gap) continue;
+      if (!ignoreRecent && recent.includes(candidate)) continue;
+
+      const score = lineDarkness(pixelsFor(cache, pins, current, candidate, pinCount, size), residual, stride);
+      if (score > chosenScore) {
+        chosenScore = score;
+        chosen = candidate;
+      }
+    }
+
+    return chosen;
+  }
 }
 
 export function renderBoard(
@@ -238,166 +222,10 @@ export function renderBoard(
   return image;
 }
 
-function prepareTarget(darkness: Float32Array, size: number) {
-  const center = (size - 1) / 2;
-  const radiusSquared = (size / 2) * (size / 2);
-  const inside: number[] = [];
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const dx = x - center;
-      const dy = y - center;
-      if (dx * dx + dy * dy <= radiusSquared) inside.push(darkness[y * size + x]);
-    }
-  }
-
-  inside.sort((left, right) => left - right);
-  const low = inside[Math.floor((inside.length - 1) * 0.03)] ?? 0;
-  const mid = inside[Math.floor((inside.length - 1) * 0.7)] ?? low;
-  const span = Math.max(0.08, mid - low);
-  const stretched = new Float32Array(darkness.length);
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const dx = x - center;
-      const dy = y - center;
-      if (dx * dx + dy * dy > radiusSquared) continue;
-      const value = ((darkness[y * size + x] - low) / span) * 0.45;
-      stretched[y * size + x] = Math.min(1, Math.max(0, value));
-    }
-  }
-
-  const blurred = boxBlur(stretched, size, Math.max(1, Math.round(size / 48)));
-  const target = new Float32Array(darkness.length);
-  let peakDetail = 0.001;
-
-  for (let index = 0; index < stretched.length; index += 1) {
-    peakDetail = Math.max(peakDetail, stretched[index] - blurred[index]);
-  }
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const dx = x - center;
-      const dy = y - center;
-      if (dx * dx + dy * dy > radiusSquared) continue;
-      const index = y * size + x;
-      const tone = stretched[index] ** 0.9;
-      const edge = Math.max(0, stretched[index] - blurred[index]) / peakDetail;
-      const value = tone + edge * 0.32;
-      target[index] = value < 0.04 ? 0 : Math.min(1, Math.max(0, value));
-    }
-  }
-
-  const gradient = new Float32Array(darkness.length);
-  let peakGradient = 0.001;
-
-  for (let y = 1; y < size - 1; y += 1) {
-    for (let x = 1; x < size - 1; x += 1) {
-      const dx = x - center;
-      const dy = y - center;
-      if (dx * dx + dy * dy > radiusSquared) continue;
-      const horizontal = stretched[y * size + x + 1] - stretched[y * size + x - 1];
-      const vertical = stretched[(y + 1) * size + x] - stretched[(y - 1) * size + x];
-      const magnitude = Math.hypot(horizontal, vertical);
-      gradient[y * size + x] = magnitude;
-      peakGradient = Math.max(peakGradient, magnitude);
-    }
-  }
-
-  const importance = new Float32Array(darkness.length);
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const dx = x - center;
-      const dy = y - center;
-      if (dx * dx + dy * dy > radiusSquared) continue;
-      const index = y * size + x;
-      const edge = gradient[index] / peakGradient;
-      importance[index] = 0.15 + 0.85 * Math.max(edge, target[index]);
-    }
-  }
-
-  return { target, importance };
-}
-
-function boxBlur(source: Float32Array, size: number, radius: number) {
-  const horizontal = new Float32Array(source.length);
-  const result = new Float32Array(source.length);
-  const center = (size - 1) / 2;
-  const radiusSquared = (size / 2) * (size / 2);
-  const isInside = (x: number, y: number) => {
-    const dx = x - center;
-    const dy = y - center;
-    return dx * dx + dy * dy <= radiusSquared;
-  };
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (!isInside(x, y)) continue;
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleX = x + offset;
-        if (sampleX < 0 || sampleX >= size || !isInside(sampleX, y)) continue;
-        sum += source[y * size + sampleX];
-        count += 1;
-      }
-      horizontal[y * size + x] = count === 0 ? source[y * size + x] : sum / count;
-    }
-  }
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (!isInside(x, y)) continue;
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleY = y + offset;
-        if (sampleY < 0 || sampleY >= size || !isInside(x, sampleY)) continue;
-        sum += horizontal[sampleY * size + x];
-        count += 1;
-      }
-      result[y * size + x] = count === 0 ? horizontal[y * size + x] : sum / count;
-    }
-  }
-
-  return result;
-}
-
-function scoreLine(
-  pixels: number[],
-  target: Float32Array,
-  coverage: Float32Array,
-  importance: Float32Array,
-  stride: number,
-) {
-  let darkness = 0;
-  let samples = 0;
-
-  for (let index = 0; index < pixels.length; index += stride) {
-    const pixel = pixels[index];
-    const remaining = target[pixel] - coverage[pixel];
-    samples += 1;
-    if (remaining > 0) darkness += remaining * importance[pixel];
-  }
-
-  if (samples === 0) return Number.NEGATIVE_INFINITY;
-  return darkness / samples;
-}
-
-function commitLine(
-  pixels: number[],
-  angle: number,
-  coverage: Float32Array,
-  angles: Float32Array,
-  strength: number,
-) {
-  for (const pixel of pixels) {
-    const previous = Number.isNaN(angles[pixel]) ? null : angles[pixel];
-    const amount = addedDarkness(previous, angle, strength);
-    coverage[pixel] = Math.min(1, coverage[pixel] + amount);
-    angles[pixel] = angle;
-  }
+function lineDarkness(pixels: number[], residual: Float32Array, stride: number) {
+  let sum = 0;
+  for (let index = 0; index < pixels.length; index += stride) sum += residual[pixels[index]];
+  return sum;
 }
 
 function pixelsFor(
@@ -417,10 +245,6 @@ function pixelsFor(
   return pixels;
 }
 
-function lineAngle(from: { x: number; y: number }, to: { x: number; y: number }) {
-  return Math.atan2(to.y - from.y, to.x - from.x);
-}
-
 function edgeKey(from: number, to: number, pinCount: number) {
   return from * pinCount + to;
 }
@@ -431,7 +255,11 @@ function circularDistance(from: number, to: number, pinCount: number) {
 }
 
 function minimumGap(pinCount: number) {
-  const gap = Math.max(1, Math.round(pinCount * 0.1));
+  const gap = Math.max(1, Math.round((pinCount * 20) / 288));
   if (gap * 2 >= pinCount - 1) return Math.floor((pinCount - 1) / 3);
   return gap;
+}
+
+function recentLimit(pinCount: number) {
+  return Math.min(20, Math.max(2, Math.floor(pinCount / 10)));
 }
